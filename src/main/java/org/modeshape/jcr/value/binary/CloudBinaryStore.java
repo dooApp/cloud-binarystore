@@ -17,7 +17,10 @@ import java.util.concurrent.TimeUnit;
 /**
  * A {@link org.modeshape.jcr.value.binary.BinaryStore} implementation that use a cloud store for persisting binary values.
  * <p>
- *     This binary store implementation establishes
+ *     This binary store implementation establishes a connection to the specified cloud service. The following cloud services are supported :
+ *     <ul>
+ *         <li>aws-s3</li>
+ *     </ul>
  * </p>
  *<br>
  * Created at 04/11/2014 09:49.<br>
