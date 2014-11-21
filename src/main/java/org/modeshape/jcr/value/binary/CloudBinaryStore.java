@@ -1,11 +1,16 @@
 package org.modeshape.jcr.value.binary;
 
 import org.jclouds.ContextBuilder;
+import org.jclouds.aws.s3.AWSS3ProviderMetadata;
 import org.jclouds.blobstore.BlobStore;
 import org.jclouds.blobstore.BlobStoreContext;
 import org.jclouds.blobstore.domain.Blob;
+import org.jclouds.blobstore.domain.PageSet;
+import org.jclouds.blobstore.domain.StorageMetadata;
+import org.jclouds.blobstore.options.ListContainerOptions;
 import org.jclouds.io.Payload;
 import org.jclouds.io.payloads.InputStreamPayload;
+import org.joda.time.DateTime;
 import org.modeshape.jcr.JcrI18n;
 import org.modeshape.jcr.value.BinaryKey;
 import org.modeshape.jcr.value.BinaryValue;
@@ -59,7 +64,7 @@ public class CloudBinaryStore extends AbstractBinaryStore {
 
     @Override
     public void start() {
-        context = ContextBuilder.newBuilder(provider)
+        context = ContextBuilder.newBuilder(new AWSS3ProviderMetadata())
                 .credentials(accessKey, secretKey)
                 .buildView(BlobStoreContext.class);
         blobStore = context.getBlobStore();
@@ -106,18 +111,31 @@ public class CloudBinaryStore extends AbstractBinaryStore {
 
     @Override
     public BinaryValue storeValue(InputStream stream, boolean markAsUnused) throws BinaryStoreException {
+        return storeValue(stream, null, markAsUnused);
+    }
+
+    @Override
+    public BinaryValue storeValue(InputStream stream, String hint, boolean markAsUnused) throws BinaryStoreException {
         final BinaryValue temp = cache.storeValue(stream, markAsUnused);
 
         BinaryKey key = new BinaryKey(temp.getKey().toString());
+        String k = key.toString();
         try {
-            if (blobStore.blobExists(container, key.toString())) {
+            if (hint != null) {
+                if (!blobStore.directoryExists(container, hint)) {
+                    blobStore.createDirectory(container, hint);
+                }
+                k = hint + "/" + key.toString();
+            }
+            if (blobStore.blobExists(container, k)) {
                 return new StoredBinaryValue(this, key, temp.getSize());
             }
             Payload payload = new InputStreamPayload(temp.getStream());
-            Blob blob = blobStore.blobBuilder(key.toString())
+            Blob blob = blobStore.blobBuilder(k)
                     .payload(payload)
                     .contentLength(temp.getSize())
                     .build();
+
             blobStore.putBlob(container, blob);
             return new StoredBinaryValue(this, key, temp.getSize());
         } catch (Exception e) {
@@ -145,6 +163,7 @@ public class CloudBinaryStore extends AbstractBinaryStore {
         try {
             for (BinaryKey k : keys) {
                 blobStore.getBlob(container, k.toString()).getMetadata().getUserMetadata().put(USED, MARK_USED_STMT_KEY);
+                blobStore.getBlob(container, k.toString()).getMetadata().getContentMetadata().setExpires(null);
             }
         } catch (Exception e) {
             throw new BinaryStoreException(e);
@@ -156,6 +175,9 @@ public class CloudBinaryStore extends AbstractBinaryStore {
         try {
             for (BinaryKey k : keys) {
                 blobStore.getBlob(container, k.toString()).getMetadata().getUserMetadata().put(USED, MARK_UNUSED_STMT_KEY);
+                DateTime dateTime = new DateTime();
+                dateTime.plusMonths(1);
+                blobStore.getBlob(container, k.toString()).getMetadata().getContentMetadata().setExpires(dateTime.toDate());
             }
         } catch (Exception e) {
             throw new BinaryStoreException(e);
@@ -164,12 +186,25 @@ public class CloudBinaryStore extends AbstractBinaryStore {
 
     @Override
     public void removeValuesUnusedLongerThan(long minimumAge, TimeUnit unit) throws BinaryStoreException {
-
+        String marker = null;
+        while (true) {
+            PageSet<StorageMetadata> set = (PageSet<StorageMetadata>) blobStore.list(container,
+                    new ListContainerOptions().afterMarker(marker));
+            for (StorageMetadata sm : set) {
+                if (new DateTime(sm.getLastModified()).plus(TimeUnit.DAYS.convert(minimumAge, unit)).toDate().before(new DateTime().toDate())) {
+                    blobStore.removeBlob(container, sm.getName());
+                }
+            }
+            marker = set.getNextMarker();
+            if (marker == null) {
+                break;
+            }
+        }
     }
+
 
     @Override
     public Iterable<BinaryKey> getAllBinaryKeys() throws BinaryStoreException {
-
         return null;
     }
 
