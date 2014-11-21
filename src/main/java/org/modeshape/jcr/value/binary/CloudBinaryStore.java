@@ -163,7 +163,6 @@ public class CloudBinaryStore extends AbstractBinaryStore {
         try {
             for (BinaryKey k : keys) {
                 blobStore.getBlob(container, k.toString()).getMetadata().getUserMetadata().put(USED, MARK_USED_STMT_KEY);
-                blobStore.getBlob(container, k.toString()).getMetadata().getContentMetadata().setExpires(null);
             }
         } catch (Exception e) {
             throw new BinaryStoreException(e);
@@ -175,9 +174,6 @@ public class CloudBinaryStore extends AbstractBinaryStore {
         try {
             for (BinaryKey k : keys) {
                 blobStore.getBlob(container, k.toString()).getMetadata().getUserMetadata().put(USED, MARK_UNUSED_STMT_KEY);
-                DateTime dateTime = new DateTime();
-                dateTime.plusMonths(1);
-                blobStore.getBlob(container, k.toString()).getMetadata().getContentMetadata().setExpires(dateTime.toDate());
             }
         } catch (Exception e) {
             throw new BinaryStoreException(e);
